@@ -1,16 +1,7 @@
-%% The contents of this file are subject to the Mozilla Public License
-%% Version 1.1 (the "License"); you may not use this file except in
-%% compliance with the License. You may obtain a copy of the License
-%% at https://www.mozilla.org/MPL/
+%% This Source Code Form is subject to the terms of the Mozilla Public
+%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and
-%% limitations under the License.
-%%
-%% The Original Code is RabbitMQ.
-%%
-%% The Initial Developer of the Original Code is GoPivotal, Inc.
 %% Copyright (c) 2007-2020 VMware, Inc. or its affiliates.  All rights reserved.
 %%
 
@@ -19,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("kernel/include/inet.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([
     setup_steps/0,
@@ -66,6 +58,15 @@
     is_feature_flag_supported/3,
     enable_feature_flag/2,
     enable_feature_flag/3,
+
+    drain_node/2,
+    revive_node/2,
+    mark_as_being_drained/2,
+    unmark_as_being_drained/2,
+    is_being_drained_local_read/2,
+    is_being_drained_local_read/3,
+    is_being_drained_consistent_read/2,
+    is_being_drained_consistent_read/3,
 
     set_partition_handling_mode/3,
     set_partition_handling_mode_globally/2,
@@ -951,12 +952,20 @@ configure_dist_proxy(Config) ->
       {erlang_dist_module, inet_tcp_proxy_dist}).
 
 block_traffic_between(NodeA, NodeB) ->
-    rpc:call(NodeA, inet_tcp_proxy_dist, block, [NodeB]),
-    rpc:call(NodeB, inet_tcp_proxy_dist, block, [NodeA]).
+    ct:pal(
+      ?LOW_IMPORTANCE,
+      "Blocking traffic between ~s and ~s",
+      [NodeA, NodeB]),
+    ?assertEqual(ok, rpc:call(NodeA, inet_tcp_proxy_dist, block, [NodeB])),
+    ?assertEqual(ok, rpc:call(NodeB, inet_tcp_proxy_dist, block, [NodeA])).
 
 allow_traffic_between(NodeA, NodeB) ->
-    rpc:call(NodeA, inet_tcp_proxy_dist, allow, [NodeB]),
-    rpc:call(NodeB, inet_tcp_proxy_dist, allow, [NodeA]).
+    ct:pal(
+      ?LOW_IMPORTANCE,
+      "Unblocking traffic between ~s and ~s",
+      [NodeA, NodeB]),
+    ?assertEqual(ok, rpc:call(NodeA, inet_tcp_proxy_dist, allow, [NodeB])),
+    ?assertEqual(ok, rpc:call(NodeB, inet_tcp_proxy_dist, allow, [NodeA])).
 
 set_partition_handling_mode_globally(Config, Mode) ->
     rpc_all(Config,
@@ -1546,6 +1555,26 @@ enable_feature_flag(Config, [Node1 | _] = Nodes, FeatureName) ->
                io_lib:format("'~s' feature flag is unsupported",
                              [FeatureName]))}
     end.
+
+mark_as_being_drained(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, mark_as_being_drained, []).
+unmark_as_being_drained(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, unmark_as_being_drained, []).
+
+drain_node(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, drain, []).
+revive_node(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, revive, []).
+
+is_being_drained_consistent_read(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, is_being_drained_consistent_read, [Node]).
+is_being_drained_local_read(Config, Node) ->
+    rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_maintenance, is_being_drained_local_read, [Node]).
+
+is_being_drained_consistent_read(Config, TargetNode, NodeToCheck) ->
+    rabbit_ct_broker_helpers:rpc(Config, TargetNode, rabbit_maintenance, is_being_drained_consistent_read, [NodeToCheck]).
+is_being_drained_local_read(Config, TargetNode, NodeToCheck) ->
+    rabbit_ct_broker_helpers:rpc(Config, TargetNode, rabbit_maintenance, is_being_drained_local_read, [NodeToCheck]).
 
 %% From a given list of gen_tcp client connections, return the list of
 %% connection handler PID in RabbitMQ.
